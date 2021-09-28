@@ -4,7 +4,7 @@
 (defvar markov-model (markov--new-model)
   "Variable containing the current markov model.")
 
-(defvar markov-model-type 'markov-word-type)
+(defvar markov-model-type 'markov-tuple-type)
 
 (cl-defstruct (markov-transitions
                (:constructor markov-transitions-create))
@@ -17,7 +17,7 @@ a counter. The counter is the sum of all weights."
   "Create a new markov model."
   (make-hash-table :test 'equal))
 
-(defun marlov--reset-global-model ()
+(defun markov--reset-global-model ()
   "Reset the global markov model to clean state."
   (setq markov-model (markov--new-model)))
 
@@ -55,14 +55,26 @@ It will use markov-model-type to as its base implementation."
                                                                  current-state)))))
 
 (defun markov-retrain-model ()
-  "Reset model and train on current buffer"
-  (interactive "P")
+  "Reset model and train on current buffer."
+  (interactive)
   (markov--reset-global-model)
   (markov-train-model))
 
+(defun markov-generate ()
+  "Generate output based in current markov model."
+  (interactive)
+  (let ((final-state (get markov-model-type :markov-final-state))
+        (initial-state (get markov-model-type :markov-initial-state))
+        (write-state (get markov-model-type :markov-write-state))
+        (equal-state (get markov-model-type :markov-equal-state)))
+    (cl-loop for current-state = initial-state
+             then (markov--get-random-transition markov-model current-state)
+             until (funcall equal-state current-state final-state)
+             do (funcall write-state current-state))))
+
 (defun markov--get-random-transition (model state)
   "Given a markov model and a state, pick a random transition and
-return that state . "
+return that state."
   (let ((transitions (gethash state model)))
     (unless transitions
       (error "No transitions for state '%s'." state))
@@ -71,7 +83,7 @@ return that state . "
      (markov-transitions-count transitions))))
 
 (defun markov--insert-transition (model from-state to-state)
-  "Insert a state transition into the markov model . "
+  "Insert a state transition into the markov model."
   (let* ((next-states (gethash from-state model
                                (markov-transitions-create)))
          (next-state-pos (seq-position (markov-transitions-transitions next-states)
@@ -101,8 +113,10 @@ return that state . "
   `(setplist
     (quote ,(intern (concat "markov-" (symbol-name name) "-type")))
     (list
-     :markov-move-to-next-state ,move-to-next-state
-     :markov-equal-state (lambda () ,equal-state)
+     :markov-move-to-next-state (lambda () ,move-to-next-state)
+     :markov-equal-state ,(if equal-state
+                              (list lambda () equal-state)
+                            '(quote equal))
      :markov-read-state (lambda () ,read-state)
      :markov-write-state (lambda (state) ,write-state)
      :markov-initial-state ,initial-state
@@ -117,8 +131,39 @@ return that state . "
                ((>= (point) (point-max)) 'end)
                ((looking-back (rx punct) 1) (match-string-no-properties 0))
                (t (word-at-point 'no-properties)))
-  :write-state (insert " %s" state)
+  :write-state (cond
+                ((eq state 'start) nil)
+                ((or (bobp)
+                     (string-match-p (rx punct) state))
+                 (insert (format "%s" state)))
+                (t (insert (format " %s" state))))
   :initial-state 'start
   :final-state 'end)
+
+(maphash (lambda (k v) (message "%s" k)) markov-model)
+(flet ((move-to-next-state () (if (looking-at (rx punct))
+                                  (forward-char)
+                                (forward-word))))
+  (define-markov-model-type tuple
+    :move-to-next-state (move-to-next-state)
+    :read-state (cond
+                 ((<= (point) (point-min)) 'start)
+                 ((>= (point) (point-max)) 'end)
+                 (t (save-excursion
+                      (cl-loop for i from 1 to 2
+                               if (looking-back (rx punct) 1)
+                               collect (match-string-no-properties 0)
+                               else
+                               collect (word-at-point 'no-properties)
+                               end
+                               do (move-to-next-state)))))
+    :write-state (cond
+                  ((eq state 'start) nil)
+                  ((or (bobp)
+                       (string-match-p (rx punct) (car state)))
+                   (insert (format "%s" (car state))))
+                  (t (insert (format " %s" (car state)))))
+    :initial-state 'start
+    :final-state 'end))
 
 (provide 'markov)
