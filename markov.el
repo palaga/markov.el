@@ -1,10 +1,16 @@
 (require 'cl-lib)
 (require 'thingatpt)
 
-(defvar markov-model (markov--new-model)
+(defvar markov--model (markov--new-model)
   "Variable containing the current markov model.")
 
-(defvar markov-model-type 'markov-tuple-type)
+;;; Customizations
+(defcustom markov-model-type 'markov-tuple-type
+  "Markov model implementation type."
+  :group 'markov
+  :type '(choice
+          (const markov-word-type)
+          (const markov-tuple-type)))
 
 (cl-defstruct (markov-transitions
                (:constructor markov-transitions-create))
@@ -19,7 +25,7 @@ a counter. The counter is the sum of all weights."
 
 (defun markov--reset-global-model ()
   "Reset the global markov model to clean state."
-  (setq markov-model (markov--new-model)))
+  (setq markov--model (markov--new-model)))
 
 (defun markov--linear-weighted-choice (alist weight-sum)
   "Pick a random value from alist. The alist is expected to be a
@@ -50,7 +56,7 @@ It will use markov-model-type to as its base implementation."
                then (progn (funcall move-to-next-state)
                            (funcall read-state))
                until (funcall equal-state current-state final-state)
-               when previous-state do (markov--insert-transition markov-model
+               when previous-state do (markov--insert-transition markov--model
                                                                  previous-state
                                                                  current-state)))))
 
@@ -68,7 +74,7 @@ It will use markov-model-type to as its base implementation."
         (write-state (get markov-model-type :markov-write-state))
         (equal-state (get markov-model-type :markov-equal-state)))
     (cl-loop for current-state = initial-state
-             then (markov--get-random-transition markov-model current-state)
+             then (markov--get-random-transition markov--model current-state)
              until (funcall equal-state current-state final-state)
              do (funcall write-state current-state))))
 
@@ -140,10 +146,11 @@ return that state."
   :initial-state 'start
   :final-state 'end)
 
-(maphash (lambda (k v) (message "%s" k)) markov-model)
-(flet ((move-to-next-state () (if (looking-at (rx punct))
-                                  (forward-char)
-                                (forward-word))))
+
+(flet ((move-to-next-state
+        () (if (looking-at (rx punct))
+               (forward-char)
+             (forward-word))))
   (define-markov-model-type tuple
     :move-to-next-state (move-to-next-state)
     :read-state (cond
