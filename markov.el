@@ -146,31 +146,30 @@ return that state."
   :initial-state 'start
   :final-state 'end)
 
-
-(flet ((move-to-next-state
-        () (if (looking-at (rx punct))
-               (forward-char)
-             (forward-word))))
-  (define-markov-model-type tuple
-    :move-to-next-state (move-to-next-state)
-    :read-state (cond
-                 ((<= (point) (point-min)) 'start)
-                 ((>= (point) (point-max)) 'end)
-                 (t (save-excursion
-                      (cl-loop for i from 1 to 2
-                               if (looking-back (rx punct) 1)
-                               collect (match-string-no-properties 0)
-                               else
-                               collect (word-at-point 'no-properties)
-                               end
-                               do (move-to-next-state)))))
-    :write-state (cond
-                  ((eq state 'start) nil)
-                  ((or (bobp)
-                       (string-match-p (rx punct) (car state)))
-                   (insert (format "%s" (car state))))
-                  (t (insert (format " %s" (car state)))))
-    :initial-state 'start
-    :final-state 'end))
+(define-markov-model-type tuple
+  :move-to-next-state (if (looking-at (rx punct))
+                          (forward-char)
+                        (forward-word))
+  :read-state (cond
+               ((<= (point) (point-min)) 'start)
+               ((>= (point) (point-max)) 'end)
+               (t (save-excursion
+                    (cl-loop for i from 1 to 2
+                             if (looking-back (rx punct) 1)
+                             collect (match-string-no-properties 0)
+                             else
+                             collect (word-at-point 'no-properties)
+                             end
+                             do (if (looking-at (rx punct))
+                                    (forward-char)
+                                  (forward-word))))))
+  :write-state (cond
+                ((eq state 'start) nil)
+                ((or (bobp)
+                     (string-match-p (rx punct) (car state)))
+                 (insert (format "%s" (car state))))
+                (t (insert (format " %s" (car state)))))
+  :initial-state 'start
+  :final-state 'end)
 
 (provide 'markov)
